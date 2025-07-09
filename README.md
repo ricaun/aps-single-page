@@ -18,4 +18,4 @@ This project is [licensed](LICENSE) under the [MIT License](https://en.wikipedia
 
 ---
 
-Do you like this project? Please [star this project on GitHub](https://github.com/ricaun-io/ricaun.RevitTest/stargazers)!
+Do you like this project? Please [star this project on GitHub](https://github.com/ricaun/aps-single-page/stargazers)!
