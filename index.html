@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <link rel="icon" href="favicon.ico">
+  <title>Single-Page - Autodesk Platform Services</title>
+
+  <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/normalize/5.0.0/normalize.css">
+  <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/milligram/1.3.0/milligram.css">
+
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+    }
+
+    .screen {
+      background-color: #eceff1;
+      display: flex;
+      min-height: 100vh;
+      width: 100%;
+      padding: 0;
+      margin: 0;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+    }
+
+    /* Custom color */
+    .button-black {
+      background-color: black;
+      border-color: black;
+    }
+
+    .button-black.button-clear,
+    .button-black.button-outline {
+      background-color: transparent;
+      color: black;
+    }
+
+    .button-black.button-clear {
+      border-color: transparent;
+    }
+
+    /* Custom size */
+    .button-small {
+      font-size: .8rem;
+      height: 2.8rem;
+      line-height: 2.8rem;
+      padding: 0 1.5rem;
+    }
+
+    .button-large {
+      font-size: 1.4rem;
+      height: 4.5rem;
+      line-height: 4.5rem;
+      padding: 0 2rem;
+    }
+
+    .autodesk-icon {
+      border: none;
+      display: inline-block;
+      vertical-align: middle;
+      margin: 8px;
+    }
+  </style>
+
+</head>
+
+<body>
+  <div class="screen">
+    <div style="text-align: center;">
+      <div class="container" style="max-width:1800px;">
+        <div id="data"></div>
+      </div>
+    </div>
+  </div>
+  <script>
+    const APS_CLIENT_ID = 'LtSI0DgPFsVmBLndZSsG8a2pb1unHNJu';
+    const APS_CALLBACK_URL = window.location.origin + window.location.pathname;
+    const APS_SCOPES = ['user-profile:read'];
+    /**
+     * Generates random string of specified length.
+     * @param {number} len Length of the output string.
+     * @param {string} chars Characters allowed in the output string.
+     * @returns {string}
+     */
+    function generateRandomString(len, chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789') {
+      const arr = new Array(len);
+      for (let i = 0; i < len; i++) {
+        arr[i] = chars[Math.floor(Math.random() * chars.length)];
+      }
+      return arr.join('');
+    }
+
+    /**
+     * Generates a PKCE code challenge for given code verifier (see https://aps.autodesk.com/en/docs/oauth/v2/tutorials/code-challenge/).
+     * @async
+     * @param {string} Code verifier.
+     * @returns {Promise<string>}
+     */
+    async function generateCodeChallenge(str) {
+      const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+      return window.btoa(String.fromCharCode(...new Uint8Array(hash))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+    }
+
+    /**
+     * Generates URL for initiating the PKCE authorization workflow (see https://aps.autodesk.com/en/docs/oauth/v2/tutorials/get-3-legged-token-pkce/#step-1-direct-the-user-to-the-authorization-web-flow-with-pkce).
+     * @param {string} clientId Application client ID.
+     * @param {string} callbackUrl Callback URL as configured on the dev. portal.
+     * @param {array} scopes List of authentication scopes (see https://aps.autodesk.com/en/docs/oauth/v2/developers_guide/scopes/).
+     * @param {string} nonce Arbitrary string used to associate a client session with an ID token and to mitigate replay attacks.
+     * @param {string} challenge Code challenge generated from code verifier (see `generateCodeChallenge`).
+     * @returns {string}
+     */
+    function generateLoginUrl(clientId, callbackUrl, scopes, nonce, challenge) {
+      const url = new URL('https://developer.api.autodesk.com/authentication/v2/authorize');
+      url.searchParams.append('response_type', 'code');
+      url.searchParams.append('client_id', APS_CLIENT_ID);
+      url.searchParams.append('redirect_uri', APS_CALLBACK_URL);
+      url.searchParams.append('scope', scopes.join(' '));
+      url.searchParams.append('nonce', nonce);
+      //url.searchParams.append('prompt', 'login'); // force to login
+      url.searchParams.append('code_challenge', challenge);
+      url.searchParams.append('code_challenge_method', 'S256');
+      return url.toString();
+    }
+
+    /**
+     * Exchanges temporary code from the PKCE authorization workflow for access token.
+     * See https://aps.autodesk.com/en/docs/oauth/v2/tutorials/get-3-legged-token-pkce/#step-3-exchange-the-authorization-code-with-pkce-for-an-access-token.
+     * @async
+     * @param {string} clientId Application client ID.
+     * @param {string} codeVerifier PKCE code verifier.
+     * @param {string} code Temporary code received from the PKCE authorization workflow.
+     * @param {string} callbackUrl Callback URL as configured on the dev. portal.
+     * @returns {Promise<object>}
+     */
+    async function GetExchangeToken(clientId, codeVerifier, code, callbackUrl) {
+      const payload = {
+        'grant_type': 'authorization_code',
+        'client_id': clientId,
+        'code_verifier': codeVerifier,
+        'code': code,
+        'redirect_uri': callbackUrl
+      };
+      const resp = await fetch('https://developer.api.autodesk.com/authentication/v2/token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Accept': 'application/json'
+        },
+        body: Object.keys(payload).map(key => encodeURIComponent(key) + '=' + encodeURIComponent(payload[key])).join('&')
+      });
+      if (!resp.ok) {
+        throw new Error(await resp.text());
+      }
+      const credentials = await resp.json();
+      return credentials;
+    }
+    
+    async function GetAccessToken(clientId, refreshToken) {
+      const payload = {
+        'grant_type': 'refresh_token',
+        'client_id': clientId,
+        'refresh_token': refreshToken,
+      };
+      const resp = await fetch('https://developer.api.autodesk.com/authentication/v2/token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Accept': 'application/json'
+        },
+        body: Object.keys(payload).map(key => encodeURIComponent(key) + '=' + encodeURIComponent(payload[key])).join('&')
+      });
+      if (!resp.ok) {
+        throw new Error(await resp.text());
+      }
+      const credentials = await resp.json();
+      return credentials;
+    }
+    
+    async function RevokeRefreshToken(clientId, refreshToken) {
+      const payload = {
+        'token_type_hint': 'refresh_token',
+        'client_id': clientId,
+        'token': refreshToken,
+      };
+      const resp = await fetch('https://developer.api.autodesk.com/authentication/v2/revoke', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Accept': 'application/json'
+        },
+        body: Object.keys(payload).map(key => encodeURIComponent(key) + '=' + encodeURIComponent(payload[key])).join('&')
+      });
+      return resp.status;
+    }
+ 
+    async function GetUserInfo(authorization) {
+      const resp = await fetch('https://developer.api.autodesk.com/userprofile/v1/users/@me', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Accept': 'application/json',
+          'Authorization': 'Bearer ' + authorization
+        },
+      });
+      if (!resp.ok) {
+        throw new Error(await resp.text());
+      }
+      const userInfo = await resp.json();
+      return userInfo;
+    }
+
+    addEventListener('DOMContentLoaded', async function () {
+      
+      let refreshToken = localStorage.getItem('refresh-token');
+      const params = new URLSearchParams(window.location.search);
+      if (params.has('code') || refreshToken) { // If the URL contains a `code` query parameter, exchange it for an access token, and display the token on the page
+        try {
+          
+          let credentials;
+          if (refreshToken)
+          {
+            credentials = await GetAccessToken(APS_CLIENT_ID, refreshToken);
+            console.log("RefreshToken");
+          }
+          else
+          {
+            const codeVerifier = localStorage.getItem('code-verifier'); 
+            credentials = await GetExchangeToken(APS_CLIENT_ID, codeVerifier, params.get('code'), APS_CALLBACK_URL);
+            console.log("ExchangeToken");
+          }
+          
+          //console.log(credentials)
+          //localStorage.setItem('access-token', credentials.access_token);
+          
+          localStorage.setItem('refresh-token', credentials.refresh_token);
+          console.log(credentials.refresh_token.substring(0,8));
+          
+          const accessToken = credentials.access_token;
+          console.log(accessToken);
+          
+          const user = await GetUserInfo(accessToken);
+
+          var data = document.getElementById("data");
+          const userName = document.createElement('h2');
+          const userImage = document.createElement('img');
+          userImage.setAttribute("height", "128");
+          userImage.setAttribute("style", "border-radius: 50%;");
+
+          const logoutDiv = document.createElement('div');
+          logoutDiv.setAttribute("style", "text-align: center; margin: 16px");
+          
+          const logout = document.createElement('button');
+          logout.setAttribute("class", "button button-black button-outline");
+          logout.innerText = 'Logout';
+          logout.addEventListener("click", async function () {
+            var status = await RevokeRefreshToken(APS_CLIENT_ID, localStorage.getItem('refresh-token'));
+            console.log("RevokeRefreshToken " + status);
+            localStorage.clear();
+            window.location.assign(APS_CALLBACK_URL);
+          });
+          logoutDiv.appendChild(logout);
+
+          userImage.src = user.profileImages.sizeX360;
+          userName.innerHTML = user.firstName + " " + user.lastName;
+          
+          data.appendChild(userName);
+          data.appendChild(userImage);
+          data.appendChild(logoutDiv);
+
+
+        } catch (err) {
+          document.write('<p>' + err + '</p>');
+          localStorage.clear();
+          window.location.assign(APS_CALLBACK_URL);
+        }
+      } else if (params.has('error')) { // If the URL contains an `error` query parameter, display the error description on the page
+        document.write('<p>' + params.get('error') + '</p>');
+        document.write('<p>' + params.get('error_description') + '</p>');
+        localStorage.clear();
+        window.location.assign(APS_CALLBACK_URL);
+      } else { // Otherwise display a link to initiate the PKCE authorization workflow
+        try {
+          const codeVerifier = generateRandomString(64); // Length must be between 43 and 128
+          localStorage.setItem('code-verifier', codeVerifier); // Store code verifier for later use
+          const codeChallenge = await generateCodeChallenge(codeVerifier);
+
+          const autodeskImage = document.createElement('img');
+          autodeskImage.setAttribute("class", "autodesk-icon");
+          autodeskImage.setAttribute("width", "20");
+          autodeskImage.setAttribute("alt", "");
+          autodeskImage.setAttribute("src", "https://cdn.glitch.global/34f976e7-add0-413f-a31e-8e3f84d6cf18/au_logo.png");
+          
+          const autodeskText = document.createElement('text');
+          autodeskText.innerText = 'Sign in with Autodesk';
+          
+          const autodeskSigninButton = document.createElement('button');
+          autodeskSigninButton.appendChild(autodeskImage);
+          autodeskSigninButton.appendChild(autodeskText);
+          autodeskSigninButton.setAttribute("class", "button button-black button-outline");
+
+          autodeskSigninButton.addEventListener("click", function () {
+            const url_autodesk = generateLoginUrl(APS_CLIENT_ID, APS_CALLBACK_URL, APS_SCOPES, '123456', codeChallenge);
+            //const url_autodesk = generateLoginUrl(APS_CLIENT_ID, APS_CALLBACK_URL, ['user-profile:read'], '123456', codeChallenge);
+            window.location.assign(url_autodesk);
+          });
+
+          var data = document.getElementById("data");
+          data.appendChild(autodeskSigninButton);
+        } catch (err) {
+          document.write('<p>' + err + '</p>');
+        }
+      }
+    });
+  </script>
+</body>
+
+</html>
