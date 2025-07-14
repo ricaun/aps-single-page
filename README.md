@@ -4,6 +4,8 @@ This is a single page application to Authentication with Autodesk Platform Servi
 
 * https://ricaun.github.io/aps-single-page/
 
+![aps-single-page 2025-07-14 08-42-50](https://github.com/user-attachments/assets/1ee9e838-dbb4-4086-a836-ba37c98153c5)
+
 ## Aps Application
 
 ![image](https://github.com/user-attachments/assets/14a1053b-e27f-4859-95b1-db5b62ac6e87)
